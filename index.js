@@ -1,4 +1,5 @@
 // index.js — безопасная, production-ready версия с secret_token для Render + Telegraf
+console.log(`📦 Версия Telegraf: ${require('telegraf/package.json').version}`);
 require('dotenv').config();
 const express = require('express');
 const { Telegraf } = require('telegraf');
@@ -79,6 +80,64 @@ bot.on('my_chat_member', async (ctx) => {
   }
 });
 
+// === Обработчик текстовых сообщений для анализа интро ===
+bot.on('message', async (ctx) => {
+  const msg = ctx.message;
+  if (!msg.text || msg.from?.is_bot || msg.reply_to_message) return;
+
+  const words = msg.text.trim().split(/\s+/);
+  if (words.length < 10) return;
+
+  const { chat, from } = msg;
+  const userId = from.id;
+  const chatId = chat.id;
+
+  // === Проверка: уже есть интро от этого пользователя в этом чате? ===
+  const { data: existingIntro, error: selectError } = await supabase
+    .from('intros')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('chat_id', chatId)
+    .maybeSingle(); // Возвращает null, если не найдено
+
+  if (selectError) {
+    console.error('❌ Ошибка проверки существующего интро:', selectError);
+    return;
+  }
+
+  if (existingIntro) {
+    console.log(`⏭️ Пользователь ${userId} уже отправил интро в чат ${chatId} — пропускаем.`);
+    return;
+  }
+
+  // === Формируем username для логов ===
+  const username = from.username 
+    ? `@${from.username}` 
+    : from.first_name 
+      ? from.first_name 
+      : `id${userId}`;
+
+  // === Сохраняем в очередь (таблица intro_jobs) ===
+  const { error: insertError } = await supabase
+    .from('intro_jobs')
+    .insert({
+      chat_id: chatId,
+      user_id: userId,
+      username: from.username || from.first_name || `id${userId}`,
+      text: msg.text,
+      message_id: msg.message_id,
+    });
+
+  if (insertError) {
+    console.error('❌ Ошибка добавления в очередь:', insertError);
+  } else {
+    console.log(`📨 Сообщение от ${username} поставлено в очередь`);
+  }
+});
+
+
+
+
 // === Глобальный обработчик ошибок Telegraf ===
 bot.catch((err, ctx) => {
   console.error('🚨 Telegraf поймал ошибку:', err);
@@ -86,10 +145,8 @@ bot.catch((err, ctx) => {
 });
 
 // === Установка вебхука с secret_token ===
-const isProduction = !!process.env.RENDER;
-const baseUrl = isProduction
-  ? process.env.RENDER_EXTERNAL_URL
-  : `http://localhost:${port}`;
+const isProduction = !!process.env.RENDER_EXTERNAL_URL;
+const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
 
 if (!baseUrl) {
   throw new Error('❌ Не удалось определить базовый URL для вебхука');
@@ -115,3 +172,10 @@ app.get('/', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${port}`);
 });
+
+
+
+if (process.env.NODE_ENV !== 'development') {
+  const { runWorker } = require('./worker');
+  runWorker().catch(console.error);
+}
