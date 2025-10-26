@@ -1,5 +1,4 @@
 // index.js — безопасная, production-ready версия с secret_token для Render + Telegraf
-console.log(`📦 Версия Telegraf: ${require('telegraf/package.json').version}`);
 require('dotenv').config();
 const express = require('express');
 const { Telegraf } = require('telegraf');
