@@ -7,12 +7,61 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-// Функция LLM-проверки (заглушка — замени на реальный вызов)
+// Функция LLM-проверки через DeepSeek V3.1 (бесплатно через OpenRouter)
 async function checkIfIntroWithLLM(text) {
-  // ПОКА ЧТО — временно разрешаем всё (для теста)
-  // Позже заменишь на вызов Ollama/OpenRouter
-  console.log('🔍 Проверка через LLM (заглушка):', text.substring(0, 50) + '...');
-  return true; // <-- ЗАМЕНИ ЭТО ПОЗЖЕ
+  // Экранируем кавычки, чтобы не сломать JSON
+  const safeText = text.replace(/"/g, '\\"').replace(/\n/g, ' ');
+
+  const prompt = `You are a strict classifier. Your task is to determine if the following user message is a self-introduction.
+
+A self-introduction is a message where the user **voluntarily shares personal information** about themselves, such as:
+- Name or nickname
+- Profession, role, or field of work/study
+- Interests, hobbies, or passions
+- Goals, intentions, or what they're looking for
+- Background, location, or experience
+
+If the message contains **at least two** of these elements, respond with: YES  
+Otherwise, respond with: NO
+
+Respond ONLY with "YES" or "NO". Do not add any explanation, punctuation, or extra text.
+
+Message: "${safeText}"`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000',
+        'X-Title': 'Intro Matcher Bot',
+      },
+      body: JSON.stringify({
+        model: 'deepseek/deepseek-chat-v3.1:free',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1,
+        temperature: 0,
+        stop: ['\n', '.', ' ', ','],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('❌ OpenRouter error:', response.status, errText);
+      return false;
+    }
+
+    const data = await response.json();
+    const rawAnswer = data.choices?.[0]?.message?.content?.trim();
+    const answer = (rawAnswer || '').split(/\s/)[0];
+
+    console.log(`🧠 DeepSeek: "${answer}" ← ${text.substring(0, 50)}...`);
+    return answer === 'YES';
+  } catch (err) {
+    console.error('💥 LLM error:', err.message);
+    return false;
+  }
 }
 
 // Обработка одной задачи
