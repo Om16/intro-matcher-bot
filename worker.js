@@ -9,8 +9,10 @@ const supabase = createClient(
 
 // Функция LLM-проверки через DeepSeek V3.1 (бесплатно через OpenRouter)
 async function checkIfIntroWithLLM(text) {
-  // Экранируем кавычки, чтобы не сломать JSON
-  const safeText = text.replace(/"/g, '\\"').replace(/\n/g, ' ');
+  const safeText = text
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, ' ');
 
   const prompt = `You are a strict classifier. Your task is to determine if the following user message is a self-introduction.
 
@@ -28,40 +30,59 @@ Respond ONLY with "YES" or "NO". Do not add any explanation, punctuation, or ext
 
 Message: "${safeText}"`;
 
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000',
-        'X-Title': 'Intro Matcher Bot',
-      },
-      body: JSON.stringify({
-        model: 'deepseek/deepseek-chat-v3.1:free',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1,
-        temperature: 0,
-        stop: ['\n', '.', ' ', ','],
-      }),
-    });
+  const models = [
+    'deepseek/deepseek-chat-v3.1:free',
+    'qwen/qwen3-30b-a3b:free',
+    'openai/gpt-oss-20b:free'
+  ];
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('❌ OpenRouter error:', response.status, errText);
-      return false;
+  for (const [index, model] of models.entries()) {
+    try {
+      console.log(`🧠 Попытка ${index + 1}: ${model}`);
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000',
+          'X-Title': 'Intro Matcher Bot',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 1,
+          temperature: 0,
+          stop: ['\n', ' ', '.', ','],
+        }),
+      });
+
+      // При 429 — пробуем следующую модель, если есть
+      if (response.status === 429 && index < models.length - 1) {
+        console.log(`⏳ ${model} временно недоступна (429). Переключаюсь на следующую...`);
+        continue;
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`❌ Ошибка ${model}:`, response.status, errText);
+        if (index === models.length - 1) return false;
+        continue;
+      }
+
+      const data = await response.json();
+      const rawAnswer = data.choices?.[0]?.message?.content?.trim();
+      const answer = (rawAnswer || '').split(/\s/)[0];
+
+      console.log(`✅ ${model} ответил: "${answer}"`);
+      return answer === 'YES';
+
+    } catch (err) {
+      console.error(`💥 Ошибка при вызове ${model}:`, err.message);
+      if (index === models.length - 1) return false;
     }
-
-    const data = await response.json();
-    const rawAnswer = data.choices?.[0]?.message?.content?.trim();
-    const answer = (rawAnswer || '').split(/\s/)[0];
-
-    console.log(`🧠 DeepSeek: "${answer}" ← ${text.substring(0, 50)}...`);
-    return answer === 'YES';
-  } catch (err) {
-    console.error('💥 LLM error:', err.message);
-    return false;
   }
+
+  return false;
 }
 
 // Обработка одной задачи
