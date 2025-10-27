@@ -37,10 +37,14 @@ Message: "${safeText}"`;
   ];
 
   for (const [index, model] of models.entries()) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     try {
       console.log(`🧠 Попытка ${index + 1}: ${model}`);
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
@@ -52,9 +56,11 @@ Message: "${safeText}"`;
           messages: [{ role: 'user', content: prompt }],
           max_tokens: 1,
           temperature: 0,
-          stop: ['\n', ' ', '.', ','],
+          //stop: ['\n', ' ', '.', ','],
         }),
       });
+
+      clearTimeout(timeoutId);
 
       // При 429 — пробуем следующую модель, если есть
       if (response.status === 429 && index < models.length - 1) {
@@ -71,12 +77,23 @@ Message: "${safeText}"`;
 
       const data = await response.json();
       const rawAnswer = data.choices?.[0]?.message?.content?.trim();
-      const answer = (rawAnswer || '').split(/\s/)[0];
+      if (!rawAnswer) {
+        console.warn(`⚠️ Модель ${model} вернула пустой ответ`);
+        if (index === models.length - 1) return false;
+        continue; // пробуем следующую модель
+      }
+      const answer = (rawAnswer || '').split(/\s/)[0].toUpperCase();
 
       console.log(`✅ ${model} ответил: "${answer}"`);
       return answer === 'YES';
 
     } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.error(`⏰ Таймаут (10s) при вызове ${model}`);
+        if (index === models.length - 1) return false;
+        continue;
+      }
       console.error(`💥 Ошибка при вызове ${model}:`, err.message);
       if (index === models.length - 1) return false;
     }
