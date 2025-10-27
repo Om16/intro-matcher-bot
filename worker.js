@@ -31,9 +31,9 @@ Respond ONLY with "YES" or "NO". Do not add any explanation, punctuation, or ext
 Message: "${safeText}"`;
 
   const models = [
-    'deepseek/deepseek-chat-v3.1:free',
-    'qwen/qwen3-30b-a3b:free',
-    'openai/gpt-oss-20b:free'
+    'mistralai/mistral-small-3.2-24b-instruct:free',
+    'meta-llama/llama-3.3-8b-instruct:free',
+    'deepseek/deepseek-chat-v3.1:free'
   ];
 
   for (const [index, model] of models.entries()) {
