@@ -167,6 +167,15 @@ app.get('/', (req, res) => {
   res.status(200).send('Intro Matcher Bot ✅ (с secret_token)');
 });
 
+// Эндпоинт для предотвращения сна на Render
+app.get('/ping', (req, res) => {
+  const token = req.query.token;
+  if (process.env.PING_SECRET && token !== process.env.PING_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
 // === Запуск сервера ===
 app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${port}`);
